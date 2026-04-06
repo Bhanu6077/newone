@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Report Generator</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700&family=DM+Mono:wght@400;500&family=Lato:wght@300;400;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<!-- LOADING OVERLAY -->
+<div class="overlay" id="overlay">
+    <div class="overlay-card">
+        <div class="spinner"></div>
+        <p class="overlay-title">Generating Report</p>
+        <p class="overlay-msg">Please wait — this may take a moment…</p>
+        <div class="progress-steps" id="progressSteps">
+            <div class="pstep" id="ps1"><span class="pstep-dot"></span>Validating inputs</div>
+            <div class="pstep" id="ps2"><span class="pstep-dot"></span>Rendering template</div>
+            <div class="pstep" id="ps3"><span class="pstep-dot"></span>Extracting sections</div>
+            <div class="pstep" id="ps4"><span class="pstep-dot"></span>Inserting annexures</div>
+            <div class="pstep" id="ps5"><span class="pstep-dot"></span>Packaging document</div>
+        </div>
+    </div>
+</div>
+
+<!-- HEADER -->
+<header class="topbar">
+    <div class="topbar-brand">
+        <div class="brand-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                <polyline points="14 2 14 8 20 8"/>
+                <line x1="16" y1="13" x2="8" y2="13"/>
+                <line x1="16" y1="17" x2="8" y2="17"/>
+                <polyline points="10 9 9 9 8 9"/>
+            </svg>
+        </div>
+        <div>
+            <div class="brand-name">Report Generator</div>
+            <div class="brand-sub">Hanu-Ai · Road Safety Audit · NHAI Standard</div>
+        </div>
+    </div>
+    <div class="topbar-right">
+        <span class="version-tag">v2.1</span>
+    </div>
+</header>
+
+<!-- MAIN LAYOUT -->
+<div class="layout">
+
+    <!-- LEFT NAV -->
+    <nav class="sidenav">
+        <div class="nav-group-label">Form Sections</div>
+        <a href="#sec-project" class="nav-link active">
+            <span class="nav-num">01</span> Project Details
+        </a>
+        <a href="#sec-config" class="nav-link">
+            <span class="nav-num">02</span> Configuration
+        </a>
+        <a href="#sec-roads" class="nav-link">
+            <span class="nav-num">03</span> Road Table
+        </a>
+        <a href="#sec-uploads" class="nav-link">
+            <span class="nav-num">04</span> Documents
+        </a>
+        <a href="#sec-annexures" class="nav-link">
+            <span class="nav-num">05</span> Annexures
+        </a>
+    </nav>
+
+    <!-- MAIN FORM -->
+    <main class="main-content">
+
+        <div class="page-header">
+            <h1 class="page-title">New Audit Report</h1>
+            <p class="page-desc">Complete all sections below and upload the analysed document to generate the final formatted RSA report.</p>
+        </div>
+
+        <form method="POST" enctype="multipart/form-data" id="reportForm" novalidate>
+
+            <!-- ═══ 01 PROJECT DETAILS ═══ -->
+            <section class="form-section" id="sec-project">
+                <div class="section-head">
+                    <span class="section-num">01</span>
+                    <h2 class="section-title">Project Details</h2>
+                </div>
+
+                <div class="field-grid">
+                    <div class="field full">
+                        <label for="project_name">Project Name <span class="req">*</span></label>
+                        <input type="text" id="project_name" name="project_name"
+                               placeholder="e.g. NH-48 Bangalore–Chennai Corridor" required>
+                    </div>
+
+                    <div class="field">
+                        <label for="upc_code">UPC Code <span class="req">*</span></label>
+                        <input type="text" id="upc_code" name="upc_code"
+                               placeholder="e.g. NHAI/2024/NH48/001" required>
+                    </div>
+
+                    <div class="field">
+                        <label for="length">Survey Length (km)</label>
+                        <input type="text" id="length" name="length" placeholder="e.g. 42.6">
+                    </div>
+
+                    <div class="field">
+                        <label for="state">State <span class="req">*</span></label>
+                        <input type="text" id="state" name="state" placeholder="e.g. Karnataka" required>
+                    </div>
+
+                    <div class="field">
+                        <label for="ro">Regional Office (RO)</label>
+                        <input type="text" id="ro" name="ro" placeholder="e.g. Bangalore RO">
+                    </div>
+
+                    <div class="field">
+                        <label for="piu">PIU</label>
+                        <input type="text" id="piu" name="piu" placeholder="e.g. Hosur PIU">
+                    </div>
+                </div>
+            </section>
+
+            <!-- ═══ 02 CONFIGURATION ═══ -->
+            <section class="form-section" id="sec-config">
+                <div class="section-head">
+                    <span class="section-num">02</span>
+                    <h2 class="section-title">Configuration</h2>
+                </div>
+
+                <div class="field-grid">
+
+                    <div class="field full">
+                        <label>Pavement Type <span class="req">*</span></label>
+                        <div class="pill-group">
+                            <label class="pill">
+                                <input type="radio" name="flexibleorrigid" value="Flexible" required>
+                                <span>Flexible</span>
+                            </label>
+                            <label class="pill">
+                                <input type="radio" name="flexibleorrigid" value="Rigid">
+                                <span>Rigid</span>
+                            </label>
+                            <label class="pill">
+                                <input type="radio" name="flexibleorrigid" value="Flexible/Rigid">
+                                <span>Both</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="field full">
+                        <label>Lanes <span class="req">*</span></label>
+                        <div class="pill-group">
+                            <label class="pill">
+                                <input type="radio" name="lanes" value="Four" required>
+                                <span>Four Lane</span>
+                            </label>
+                            <label class="pill">
+                                <input type="radio" name="lanes" value="Six">
+                                <span>Six Lane</span>
+                            </label>
+                            <label class="pill">
+                                <input type="radio" name="lanes" value="Four/Six">
+                                <span>Four/Six</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="field full">
+                        <label>O&M/DLP <span class="req">*</span></label>
+                        <div class="pill-group">
+                            <label class="pill">
+                                <input type="radio" name="om_dlp" value="O&M" required>
+                                <span>O&M</span>
+                            </label>
+                            <label class="pill">
+                                <input type="radio" name="om_dlp" value="DLP">
+                                <span>DLP</span>
+                            </label>
+                            <label class="pill">
+                                <input type="radio" name="om_dlp" value="O&M/DLP">
+                                <span>Both</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="field">
+                        <label for="starting_survey_date">Survey Start Date <span class="req">*</span></label>
+                        <input type="date" id="starting_survey_date" name="starting_survey_date" required>
+                    </div>
+
+                    <div class="field">
+                        <label for="zone">Zone <span class="req">*</span></label>
+                        <select id="zone" name="zone" required onchange="updateZoneBadge(this.value)">
+                            <option value="">— Select Zone —</option>
+                            <option value="Zone A">Zone A</option>
+                            <option value="Zone B">Zone B</option>
+                            <option value="Zone C">Zone C</option>
+                            <option value="Zone D">Zone D</option>
+                            <option value="Zone E">Zone E</option>
+                        </select>
+                        <div class="zone-badge-wrap">
+                            <span class="zone-badge" id="zoneBadge"></span>
+                        </div>
+                    </div>
+
+                </div>
+            </section>
+
+            <!-- ═══ 03 ROAD TABLE ═══ -->
+            <section class="form-section" id="sec-roads">
+                <div class="section-head">
+                    <span class="section-num">03</span>
+                    <h2 class="section-title">Road Inventory</h2>
+                </div>
+
+                <p class="section-hint">Select the road types present on this corridor and enter LHS / RHS counts.</p>
+
+                <div class="road-checks">
+                    <label class="road-check-item">
+                        <input type="checkbox" value="Service Roads" onchange="toggleRoad(this)">
+                        <span class="check-label">Service Roads</span>
+                    </label>
+                    <label class="road-check-item">
+                        <input type="checkbox" value="Intersection Roads" onchange="toggleRoad(this)">
+                        <span class="check-label">Intersection Roads</span>
+                    </label>
+                    <label class="road-check-item">
+                        <input type="checkbox" value="Loop Roads" onchange="toggleRoad(this)">
+                        <span class="check-label">Loop Roads</span>
+                    </label>
+                    <label class="road-check-item">
+                        <input type="checkbox" value="Bypass Roads" onchange="toggleRoad(this)">
+                        <span class="check-label">Bypass Roads</span>
+                    </label>
+                </div>
+
+                <div id="roadInputs" class="road-inputs-container"></div>
+            </section>
+
+            <!-- ═══ 04 DOCUMENTS ═══ -->
+            <section class="form-section" id="sec-uploads">
+                <div class="section-head">
+                    <span class="section-num">04</span>
+                    <h2 class="section-title">Documents</h2>
+                </div>
+
+                <div class="field-grid">
+                    <div class="field full">
+                        <label>Chainage Wise Analysed Document <span class="req">*</span></label>
+                        <div class="file-drop" id="drop-analysed"
+                             ondragover="dragOver(event, this)" ondragleave="dragLeave(this)"
+                             ondrop="dropFile(event, this, 'analysed_doc')">
+                            <input type="file" name="analysed_doc" id="analysed_doc"
+                                   accept=".docx" required onchange="fileChosen(this, 'label-analysed')">
+                            <div class="file-drop-inner">
+                                <svg class="file-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                    <polyline points="14 2 14 8 20 8"/>
+                                </svg>
+                                <div>
+                                    <p class="file-cta">Click to upload or drag &amp; drop</p>
+                                    <p class="file-hint">.docx only · max 50MB</p>
+                                </div>
+                            </div>
+                            <div class="file-name-badge" id="label-analysed"></div>
+                        </div>
+                    </div>
+
+                    <div class="field full">
+                        <label>Map Image (optional)</label>
+                        <div class="file-drop" id="drop-map"
+                             ondragover="dragOver(event, this)" ondragleave="dragLeave(this)"
+                             ondrop="dropFile(event, this, 'map_image')">
+                            <input type="file" name="map_image" id="map_image"
+                                   accept=".png,.jpg,.jpeg" onchange="fileChosen(this, 'label-map')">
+                            <div class="file-drop-inner">
+                                <svg class="file-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                    <rect x="3" y="3" width="18" height="18" rx="2"/>
+                                    <circle cx="8.5" cy="8.5" r="1.5"/>
+                                    <polyline points="21 15 16 10 5 21"/>
+                                </svg>
+                                <div>
+                                    <p class="file-cta">Click to upload or drag &amp; drop</p>
+                                    <p class="file-hint">PNG, JPG · location map for report cover</p>
+                                </div>
+                            </div>
+                            <div class="file-name-badge" id="label-map"></div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ═══ 05 ANNEXURES ═══ -->
+            <section class="form-section" id="sec-annexures">
+                <div class="section-head">
+                    <span class="section-num">05</span>
+                    <h2 class="section-title">Annexures</h2>
+                </div>
+
+                <div class="field-grid thirds">
+
+                    <div class="field">
+                        <label>Annexure A</label>
+                        <div class="file-drop small" ondragover="dragOver(event,this)"
+                             ondragleave="dragLeave(this)" ondrop="dropFile(event,this,'anx_a_doc')">
+                            <input type="file" name="anx_a_doc" accept=".docx"
+                                   onchange="fileChosen(this,'lbl-anx-a')">
+                            <div class="file-drop-inner">
+                                <svg class="file-icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                    <polyline points="14 2 14 8 20 8"/>
+                                </svg>
+                                <span class="file-cta small">Upload .docx</span>
+                            </div>
+                            <div class="file-name-badge" id="lbl-anx-a"></div>
+                        </div>
+                    </div>
+
+                    <div class="field">
+                        <label>Annexure B</label>
+                        <div class="file-drop small" ondragover="dragOver(event,this)"
+                             ondragleave="dragLeave(this)" ondrop="dropFile(event,this,'anx_b_doc')">
+                            <input type="file" name="anx_b_doc" accept=".docx"
+                                   onchange="fileChosen(this,'lbl-anx-b')">
+                            <div class="file-drop-inner">
+                                <svg class="file-icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                    <polyline points="14 2 14 8 20 8"/>
+                                </svg>
+                                <span class="file-cta small">Upload .docx</span>
+                            </div>
+                            <div class="file-name-badge" id="lbl-anx-b"></div>
+                        </div>
+                    </div>
+
+                    <div class="field">
+                        <label>Annexure C</label>
+                        <div class="file-drop small" ondragover="dragOver(event,this)"
+                             ondragleave="dragLeave(this)" ondrop="dropFile(event,this,'anx_c_doc')">
+                            <input type="file" name="anx_c_doc" accept=".docx"
+                                   onchange="fileChosen(this,'lbl-anx-c')">
+                            <div class="file-drop-inner">
+                                <svg class="file-icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                    <polyline points="14 2 14 8 20 8"/>
+                                </svg>
+                                <span class="file-cta small">Upload .docx</span>
+                            </div>
+                            <div class="file-name-badge" id="lbl-anx-c"></div>
+                        </div>
+                    </div>
+
+                </div>
+            </section>
+
+            <!-- SUBMIT -->
+            <div class="submit-bar">
+                <div class="submit-note">
+                    All <span class="req">*</span> fields are required.
+                    Output: <code>Final_Report_[ProjectName].docx</code>
+                </div>
+                <button type="submit" class="btn-generate" id="submitBtn">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                        <polyline points="7 10 12 15 17 10"/>
+                        <line x1="12" y1="15" x2="12" y2="3"/>
+                    </svg>
+                    Generate Report
+                </button>
+            </div>
+
+        </form>
+    </main>
+
+</div><!-- /layout -->
+
+<script>
+// ── ROAD TABLE TOGGLE ────────────────────────────────────────
+function toggleRoad(checkbox) {
+    const container = document.getElementById("roadInputs");
+    const roadName = checkbox.value;
+    const id = "road_" + roadName.replace(/\s/g, "_");
+
+    if (checkbox.checked) {
+        const div = document.createElement("div");
+        div.className = "road-row";
+        div.id = id;
+        div.innerHTML = `
+            <span class="road-row-name">${roadName}</span>
+            <div class="road-row-fields">
+                <div class="count-field">
+                    <label>LHS</label>
+                    <input type="number" name="${roadName}_LHS" min="0" value="0"
+                           onchange="updateRoadTotal('${id}')">
+                </div>
+                <div class="count-field">
+                    <label>RHS</label>
+                    <input type="number" name="${roadName}_RHS" min="0" value="0"
+                           onchange="updateRoadTotal('${id}')">
+                </div>
+                <div class="count-total" id="${id}_total">
+                    <span class="total-label">Total</span>
+                    <span class="total-val" id="${id}_total_val">0</span>
+                </div>
+            </div>
+            <input type="hidden" name="road_type" value="${roadName}">
+        `;
+        container.appendChild(div);
+        // Animate in
+        requestAnimationFrame(() => div.classList.add("visible"));
+    } else {
+        const el = document.getElementById(id);
+        if (el) {
+            el.classList.remove("visible");
+            setTimeout(() => el.remove(), 250);
+        }
+    }
+}
+
+function updateRoadTotal(rowId) {
+    const row = document.getElementById(rowId);
+    if (!row) return;
+    const inputs = row.querySelectorAll("input[type=number]");
+    const total = [...inputs].reduce((s, i) => s + (parseInt(i.value) || 0), 0);
+    const valEl = document.getElementById(rowId + "_total_val");
+    if (valEl) valEl.textContent = total;
+}
+
+// ── ZONE BADGE ───────────────────────────────────────────────
+const ZONE_META = {
+    "Zone A": { color: "#c0392b", label: "Zone A · Red" },
+    "Zone B": { color: "#2563eb", label: "Zone B · Blue" },
+    "Zone C": { color: "#15803d", label: "Zone C · Green" },
+    "Zone D": { color: "#b45309", label: "Zone D · Amber" },
+    "Zone E": { color: "#7c3aed", label: "Zone E · Purple" },
+};
+
+function updateZoneBadge(zone) {
+    const badge = document.getElementById("zoneBadge");
+    if (!zone || !ZONE_META[zone]) {
+        badge.style.display = "none";
+        return;
+    }
+    const meta = ZONE_META[zone];
+    badge.style.display = "inline-block";
+    badge.style.background = meta.color + "18";
+    badge.style.color = meta.color;
+    badge.style.borderColor = meta.color + "55";
+    badge.textContent = meta.label;
+}
+
+// ── FILE UPLOAD UX ───────────────────────────────────────────
+function fileChosen(input, labelId) {
+    const label = document.getElementById(labelId);
+    if (!label) return;
+    if (input.files && input.files[0]) {
+        label.textContent = "✓ " + input.files[0].name;
+        label.style.display = "block";
+        input.closest(".file-drop").classList.add("has-file");
+    } else {
+        label.style.display = "none";
+        input.closest(".file-drop").classList.remove("has-file");
+    }
+}
+
+function dragOver(e, zone) {
+    e.preventDefault();
+    zone.classList.add("drag-over");
+}
+function dragLeave(zone) {
+    zone.classList.remove("drag-over");
+}
+function dropFile(e, zone, inputName) {
+    e.preventDefault();
+    zone.classList.remove("drag-over");
+    const input = zone.querySelector("input[type=file]");
+    const labelId = zone.querySelector(".file-name-badge").id;
+    if (e.dataTransfer.files.length) {
+        // Transfer files to input
+        const dt = new DataTransfer();
+        dt.items.add(e.dataTransfer.files[0]);
+        input.files = dt.files;
+        fileChosen(input, labelId);
+    }
+}
+
+// ── SUBMIT + LOADING ─────────────────────────────────────────
+const form = document.getElementById("reportForm");
+form.addEventListener("submit", function(e) {
+    if (!form.checkValidity()) return; // Let browser handle native validation
+
+    const overlay = document.getElementById("overlay");
+    overlay.classList.add("active");
+
+    const steps = ["ps1","ps2","ps3","ps4","ps5"];
+    const delays = [0, 800, 2000, 3500, 5000];
+
+    steps.forEach((id, i) => {
+        setTimeout(() => {
+            if (i > 0) document.getElementById(steps[i-1]).classList.remove("active");
+            document.getElementById(id).classList.add("active");
+        }, delays[i]);
+    });
+});
+
+// ── ACTIVE NAV TRACKING ──────────────────────────────────────
+const sections = document.querySelectorAll(".form-section");
+const navLinks = document.querySelectorAll(".nav-link");
+
+const observer = new IntersectionObserver(entries => {
+    entries.forEach(e => {
+        if (e.isIntersecting) {
+            navLinks.forEach(n => n.classList.remove("active"));
+            const target = document.querySelector(`.nav-link[href="#${e.target.id}"]`);
+            if (target) target.classList.add("active");
+        }
+    });
+}, { threshold: 0.4 });
+
+sections.forEach(s => observer.observe(s));
+</script>
+
+</body>
+</html>
