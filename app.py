@@ -9,8 +9,10 @@ from datetime import datetime
 from copy import deepcopy
 import os
 import re
+from lxml import etree
 import uuid
 import logging
+
 
 # ==========================================================
 # APP SETUP
@@ -405,6 +407,134 @@ def copy_graph_after_table(source_doc, target_doc, marker_text: str,
 # ==========================================================
 # RSA SUMMARY TABLE (merged tables)
 # ==========================================================
+from copy import deepcopy
+from lxml import etree
+
+W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+
+
+def _fix_run_spacing(tbl_el):
+    """Ensure all <w:t> elements preserve whitespace."""
+    XML_SPACE = "{http://www.w3.org/XML/1998/namespace}space"
+    for t_el in tbl_el.iter(f"{{{W}}}t"):
+        text = t_el.text or ""
+        if not text.strip() or text != text.strip() or text == " ":
+            t_el.set(XML_SPACE, "preserve")
+
+
+def _normalize_table_width(tbl_el, target_doc):
+    """Resize a table element (lxml) to fit the target document's content width."""
+    body = target_doc.element.body
+    sect_pr = body.find(f'.//{{{W}}}sectPr')
+
+    page_w = 11906
+    margin_left = 1440
+    margin_right = 1440
+
+    if sect_pr is not None:
+        pg_sz = sect_pr.find(f'{{{W}}}pgSz')
+        pg_mar = sect_pr.find(f'{{{W}}}pgMar')
+        if pg_sz is not None:
+            page_w = int(pg_sz.get(f'{{{W}}}w', page_w))
+        if pg_mar is not None:
+            margin_left = int(pg_mar.get(f'{{{W}}}left', margin_left))
+            margin_right = int(pg_mar.get(f'{{{W}}}right', margin_right))
+
+    content_width = page_w - margin_left - margin_right
+
+    tbl_pr = tbl_el.find(f'{{{W}}}tblPr')
+    if tbl_pr is None:
+        tbl_pr = etree.SubElement(tbl_el, f'{{{W}}}tblPr')
+
+    tbl_w_el = tbl_pr.find(f'{{{W}}}tblW')
+    if tbl_w_el is None:
+        tbl_w_el = etree.SubElement(tbl_pr, f'{{{W}}}tblW')
+    tbl_w_el.set(f'{{{W}}}w', str(content_width))
+    tbl_w_el.set(f'{{{W}}}type', 'dxa')
+
+    tbl_ind = tbl_pr.find(f'{{{W}}}tblInd')
+    if tbl_ind is None:
+        tbl_ind = etree.SubElement(tbl_pr, f'{{{W}}}tblInd')
+    tbl_ind.set(f'{{{W}}}w', '0')
+    tbl_ind.set(f'{{{W}}}type', 'dxa')
+
+    scale = 1.0
+    tbl_grid = tbl_el.find(f'{{{W}}}tblGrid')
+    if tbl_grid is not None:
+        grid_cols = tbl_grid.findall(f'{{{W}}}gridCol')
+        if grid_cols:
+            original_total = sum(
+                int(c.get(f'{{{W}}}w', 0)) for c in grid_cols
+            )
+            if original_total > 0 and original_total != content_width:
+                scale = content_width / original_total
+                for col in grid_cols:
+                    orig = int(col.get(f'{{{W}}}w', 0))
+                    col.set(f'{{{W}}}w', str(int(orig * scale)))
+
+    for tc in tbl_el.iter(f'{{{W}}}tc'):
+        tc_pr = tc.find(f'{{{W}}}tcPr')
+        if tc_pr is None:
+            continue
+        tc_w = tc_pr.find(f'{{{W}}}tcW')
+        if tc_w is not None:
+            w_type = tc_w.get(f'{{{W}}}type', 'dxa')
+            if w_type == 'dxa':
+                orig = int(tc_w.get(f'{{{W}}}w', 0))
+                if orig > 0:
+                    tc_w.set(f'{{{W}}}w', str(int(orig * scale)))
+
+
+def _fix_header_row_text(tbl_el):
+    """Replace the first row's cell content with clean plain text."""
+    rows = tbl_el.findall(f'{{{W}}}tr')
+    if not rows:
+        return
+
+    header_row = rows[0]
+
+    for tc in header_row.findall(f'{{{W}}}tc'):
+        # Remove all existing paragraphs
+        for p in tc.findall(f'{{{W}}}p'):
+            tc.remove(p)
+
+        # Build a clean paragraph with plain text
+        new_p = etree.SubElement(tc, f'{{{W}}}p')
+
+        # Paragraph properties - centered, bold
+        pPr = etree.SubElement(new_p, f'{{{W}}}pPr')
+        jc = etree.SubElement(pPr, f'{{{W}}}jc')
+        jc.set(f'{{{W}}}val', 'center')
+        rPr_p = etree.SubElement(pPr, f'{{{W}}}rPr')
+        etree.SubElement(rPr_p, f'{{{W}}}b')
+        sz = etree.SubElement(rPr_p, f'{{{W}}}sz')
+        sz.set(f'{{{W}}}val', '24')
+        fonts = etree.SubElement(rPr_p, f'{{{W}}}rFonts')
+        fonts.set(f'{{{W}}}ascii', 'Arial')
+
+        lines = [
+            "ROAD SAFETY AUDITOR RECOMMENDATION FOR ROAD SIGNAGES",
+            "DURING",
+            "OPERATION AND MAINTENANCE STAGE",
+        ]
+
+        for i, line in enumerate(lines):
+            run = etree.SubElement(new_p, f'{{{W}}}r')
+            rPr = etree.SubElement(run, f'{{{W}}}rPr')
+            etree.SubElement(rPr, f'{{{W}}}b')
+            sz2 = etree.SubElement(rPr, f'{{{W}}}sz')
+            sz2.set(f'{{{W}}}val', '24')
+            fonts2 = etree.SubElement(rPr, f'{{{W}}}rFonts')
+            fonts2.set(f'{{{W}}}ascii', 'Arial')
+            t = etree.SubElement(run, f'{{{W}}}t')
+            t.text = line
+
+            # Add line break after each line except the last
+            if i < len(lines) - 1:
+                br_run = etree.SubElement(new_p, f'{{{W}}}r')
+                etree.SubElement(br_run, f'{{{W}}}br')
+
+
 def insert_rsa_summary_table(source_doc, target_doc, marker_text: str):
     tables = source_doc.tables
     if not tables:
@@ -426,6 +556,10 @@ def insert_rsa_summary_table(source_doc, target_doc, marker_text: str):
         for row in tbl.rows:
             base_el.append(deepcopy(row._element))
 
+    _fix_run_spacing(base_el)
+    _normalize_table_width(base_el, target_doc)
+    _fix_header_row_text(base_el)
+
     parent, index, marker_el = _find_marker(target_doc, marker_text)
     if parent is None:
         return
@@ -435,8 +569,13 @@ def insert_rsa_summary_table(source_doc, target_doc, marker_text: str):
     log.info("RSA summary table inserted.")
 
 
+    parent, index, marker_el = _find_marker(target_doc, marker_text)
+    if parent is None:
+        return
+
 # ==========================================================
 # FULL DOCUMENT INSERT  (Annexures A/B/C)
+
 # ==========================================================
 def insert_full_document(source_doc, target_doc, marker_text: str):
     parent, index, marker_el = _find_marker(target_doc, marker_text)
