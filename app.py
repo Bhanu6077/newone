@@ -422,26 +422,66 @@ def _fix_run_spacing(tbl_el):
             t_el.set(XML_SPACE, "preserve")
 
 
-def _normalize_table_width(tbl_el, target_doc):
-    """Resize a table element (lxml) to fit the target document's content width."""
-    body = target_doc.element.body
-    sect_pr = body.find(f'.//{{{W}}}sectPr')
+def _merge_cell_paragraphs(tbl_el):
+    """
+    Merge multiple paragraphs in a cell into one paragraph with line breaks.
+    This fixes cells where text is split across paragraphs causing mid-word
+    wrapping when the table is scaled to a narrower width.
+    Skip the first row (header) as it is already handled by _fix_header_row_text.
+    """
+    rows = tbl_el.findall(f'{{{W}}}tr')
+    if not rows:
+        return
 
-    page_w = 11906
-    margin_left = 1440
-    margin_right = 1440
+    for row in rows[1:]:  # skip header row
+        for tc in row.findall(f'{{{W}}}tc'):
+            paragraphs = tc.findall(f'{{{W}}}p')
+            if len(paragraphs) <= 1:
+                continue  # nothing to merge
 
-    if sect_pr is not None:
-        pg_sz = sect_pr.find(f'{{{W}}}pgSz')
-        pg_mar = sect_pr.find(f'{{{W}}}pgMar')
-        if pg_sz is not None:
-            page_w = int(pg_sz.get(f'{{{W}}}w', page_w))
-        if pg_mar is not None:
-            margin_left = int(pg_mar.get(f'{{{W}}}left', margin_left))
-            margin_right = int(pg_mar.get(f'{{{W}}}right', margin_right))
+            # Collect all runs from all paragraphs
+            all_runs = []
+            first_pPr = None
+            for i, para in enumerate(paragraphs):
+                if i == 0:
+                    first_pPr = para.find(f'{{{W}}}pPr')
+                runs = para.findall(f'{{{W}}}r')
+                if i > 0 and runs:
+                    # Add a line break run before runs from subsequent paragraphs
+                    all_runs.append('BR')
+                all_runs.extend(runs)
 
-    content_width = page_w - margin_left - margin_right
+            # Remove all existing paragraphs
+            for para in paragraphs:
+                tc.remove(para)
 
+            # Build one clean paragraph
+            new_p = etree.SubElement(tc, f'{{{W}}}p')
+
+            # Keep original paragraph properties from first paragraph
+            if first_pPr is not None:
+                new_p.insert(0, deepcopy(first_pPr))
+
+            # Add all runs with line breaks between paragraphs
+            for item in all_runs:
+                if item == 'BR':
+                    br_run = etree.SubElement(new_p, f'{{{W}}}r')
+                    etree.SubElement(br_run, f'{{{W}}}br')
+                else:
+                    new_p.append(deepcopy(item))
+
+def _remove_table_paragraph_style(tbl_el):
+    """
+    Remove w:pStyle references so cells use direct formatting only.
+    This fixes rendering issues when the style hasn't been resolved
+    at the insertion point in the target document.
+    """
+    for pPr in tbl_el.iter(f"{{{W}}}pPr"):
+        for pStyle in pPr.findall(f"{{{W}}}pStyle"):
+            pPr.remove(pStyle)
+            
+def _normalize_table_width(tbl_el, content_width):
+    """Resize a table element (lxml) to fit the given content width."""
     tbl_pr = tbl_el.find(f'{{{W}}}tblPr')
     if tbl_pr is None:
         tbl_pr = etree.SubElement(tbl_el, f'{{{W}}}tblPr')
@@ -485,6 +525,58 @@ def _normalize_table_width(tbl_el, target_doc):
                     tc_w.set(f'{{{W}}}w', str(int(orig * scale)))
 
 
+def _get_content_width_at_marker(target_doc, marker_el):
+    """
+    Find the effective portrait page content width at the marker's position.
+    Skips landscape sections (used for wide data tables) and returns
+    the most recent portrait sectPr before the marker.
+    """
+    body = target_doc.element.body
+    all_elements = list(body)
+
+    best_page_w = 11906
+    best_margin_left = 1440
+    best_margin_right = 1440
+
+    def _is_landscape(sect_pr):
+        pg_sz = sect_pr.find(f'{{{W}}}pgSz')
+        if pg_sz is None:
+            return False
+        orient = pg_sz.get(f'{{{W}}}orient', '')
+        if orient == 'landscape':
+            return True
+        w = int(pg_sz.get(f'{{{W}}}w', 0))
+        h = int(pg_sz.get(f'{{{W}}}h', 1))
+        return w > h
+
+    # Load document-level sectPr as baseline
+    doc_sect_pr = body.find(f'{{{W}}}sectPr')
+    if doc_sect_pr is not None and not _is_landscape(doc_sect_pr):
+        pg_sz = doc_sect_pr.find(f'{{{W}}}pgSz')
+        pg_mar = doc_sect_pr.find(f'{{{W}}}pgMar')
+        if pg_sz is not None:
+            best_page_w = int(pg_sz.get(f'{{{W}}}w', best_page_w))
+        if pg_mar is not None:
+            best_margin_left = int(pg_mar.get(f'{{{W}}}left', best_margin_left))
+            best_margin_right = int(pg_mar.get(f'{{{W}}}right', best_margin_right))
+
+    # Walk elements, only update from portrait sections
+    for el in all_elements:
+        if el is marker_el:
+            break
+        sect_pr = el.find(f'.//{{{W}}}sectPr')
+        if sect_pr is not None and not _is_landscape(sect_pr):
+            pg_sz = sect_pr.find(f'{{{W}}}pgSz')
+            pg_mar = sect_pr.find(f'{{{W}}}pgMar')
+            if pg_sz is not None:
+                best_page_w = int(pg_sz.get(f'{{{W}}}w', best_page_w))
+            if pg_mar is not None:
+                best_margin_left = int(pg_mar.get(f'{{{W}}}left', best_margin_left))
+                best_margin_right = int(pg_mar.get(f'{{{W}}}right', best_margin_right))
+
+    return best_page_w - best_margin_left - best_margin_right
+
+
 def _fix_header_row_text(tbl_el):
     """Replace the first row's cell content with clean plain text."""
     rows = tbl_el.findall(f'{{{W}}}tr')
@@ -494,14 +586,11 @@ def _fix_header_row_text(tbl_el):
     header_row = rows[0]
 
     for tc in header_row.findall(f'{{{W}}}tc'):
-        # Remove all existing paragraphs
         for p in tc.findall(f'{{{W}}}p'):
             tc.remove(p)
 
-        # Build a clean paragraph with plain text
         new_p = etree.SubElement(tc, f'{{{W}}}p')
 
-        # Paragraph properties - centered, bold
         pPr = etree.SubElement(new_p, f'{{{W}}}pPr')
         jc = etree.SubElement(pPr, f'{{{W}}}jc')
         jc.set(f'{{{W}}}val', 'center')
@@ -528,11 +617,33 @@ def _fix_header_row_text(tbl_el):
             fonts2.set(f'{{{W}}}ascii', 'Arial')
             t = etree.SubElement(run, f'{{{W}}}t')
             t.text = line
-
-            # Add line break after each line except the last
             if i < len(lines) - 1:
                 br_run = etree.SubElement(new_p, f'{{{W}}}r')
                 etree.SubElement(br_run, f'{{{W}}}br')
+
+def _fix_cell_indentation(tbl_el):
+    """Remove indent and line spacing from all body cell paragraphs."""
+    rows = tbl_el.findall(f'{{{W}}}tr')
+    if not rows:
+        return
+    for row in rows[1:]:  # skip header row
+        for tc in row.findall(f'{{{W}}}tc'):
+            for para in tc.findall(f'{{{W}}}p'):
+                pPr = para.find(f'{{{W}}}pPr')
+                if pPr is None:
+                    continue
+                # Remove indentation
+                for ind in pPr.findall(f'{{{W}}}ind'):
+                    pPr.remove(ind)
+                # Remove line spacing overrides
+                for spacing in pPr.findall(f'{{{W}}}spacing'):
+                    pPr.remove(spacing)
+                # Also strip w:spacing from every run's rPr in this para
+                for run in para.findall(f'{{{W}}}r'):
+                    rPr = run.find(f'{{{W}}}rPr')
+                    if rPr is not None:
+                        for sp in rPr.findall(f'{{{W}}}spacing'):
+                            rPr.remove(sp)
 
 
 def insert_rsa_summary_table(source_doc, target_doc, marker_text: str):
@@ -555,24 +666,33 @@ def insert_rsa_summary_table(source_doc, target_doc, marker_text: str):
     for tbl in merged[1:]:
         for row in tbl.rows:
             base_el.append(deepcopy(row._element))
-
-    _fix_run_spacing(base_el)
-    _normalize_table_width(base_el, target_doc)
-    _fix_header_row_text(base_el)
-
+    
+    # Get marker first so we can measure the correct section width
     parent, index, marker_el = _find_marker(target_doc, marker_text)
     if parent is None:
         return
 
+    # Compute width at the actual insertion point
+    content_width = _get_content_width_at_marker(target_doc, marker_el)
+    log.info(
+        "RSA summary: content width at insertion = %d DXA (%.2f inches)",
+        content_width,
+        content_width / 1440,
+    )
+
+    
+    
+
+    _remove_table_paragraph_style(base_el)
+    _fix_run_spacing(base_el)
+    _fix_cell_indentation(base_el)
+    _merge_cell_paragraphs(base_el)
+    _normalize_table_width(base_el, content_width)
+    _fix_header_row_text(base_el)
+    
     parent.insert(index, base_el)
     parent.remove(marker_el)
     log.info("RSA summary table inserted.")
-
-
-    parent, index, marker_el = _find_marker(target_doc, marker_text)
-    if parent is None:
-        return
-
 # ==========================================================
 # FULL DOCUMENT INSERT  (Annexures A/B/C)
 
@@ -605,8 +725,7 @@ def extract_till_end(source_doc, start_heading: str) -> list:
     return content
 
 
-def insert_section_blocks(doc, marker_text: str, content_blocks: list,
-                           source_doc):
+def insert_section_blocks(doc, marker_text: str, content_blocks: list,source_doc):
     parent, index, marker_el = _find_marker(doc, marker_text)
     if parent is None:
         return
