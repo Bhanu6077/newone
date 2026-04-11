@@ -225,8 +225,59 @@ def format_table(table):
 # ==========================================================
 # GENERIC SECTION EXTRACTION  (paragraphs + tables + images)
 # ==========================================================
+def _scale_table_in_block(block, scale: float = 1.1):
+    W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+    for el in block.iter():
+        local = el.tag.split("}")[-1] if "}" in el.tag else el.tag
+        if local in ("tblW", "tcW", "gridCol"):
+            w = el.get(f"{{{W_NS}}}w")
+            if w and w.lstrip("-").isdigit() and int(w) > 0:
+                el.set(f"{{{W_NS}}}w", str(int(int(w) * scale)))
+
+
+def _scale_images_in_block(block, scale: float = 1.1):
+    for el in block.iter():
+        local = el.tag.split("}")[-1] if "}" in el.tag else el.tag
+        if local == "extent":
+            cx = el.get("cx")
+            cy = el.get("cy")
+            if cx and cx.lstrip("-").isdigit():
+                el.set("cx", str(int(int(cx) * scale)))
+            if cy and cy.lstrip("-").isdigit():
+                el.set("cy", str(int(int(cy) * scale)))
+
+def _transfer_image_rels(source_doc, dest_doc, block):
+    from docx.parts.image import ImagePart
+    block = deepcopy(block)
+    R_EMBED = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed"
+    REL_TYPE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image"
+    for blip in block.iter():
+        if not blip.tag.endswith("blip"):
+            continue
+        rId = blip.get(R_EMBED)
+        if not rId or rId not in source_doc.part.rels:
+            continue
+        rel = source_doc.part.rels[rId]
+        if "image" not in rel.reltype:
+            continue
+        try:
+            src_img_part = rel.target_part
+            new_img_part = ImagePart.load(
+                src_img_part.partname,
+                src_img_part.content_type,
+                src_img_part.blob,
+                dest_doc.part.package
+            )
+            new_rId = dest_doc.part.relate_to(new_img_part, REL_TYPE)
+            blip.set(R_EMBED, new_rId)
+        except Exception as e:
+            log.error("Image transfer failed rId=%s: %s", rId, e)
+    return block
+
+
 def insert_section(target_doc, source_doc, marker_text: str,
-                   start_heading: str, stop_heading: str):
+                   start_heading: str, stop_heading: str,
+                   image_scale: float = 1.15, table_scale: float = 1.1):
     parent, index, marker_el = _find_marker(target_doc, marker_text)
     if parent is None:
         return
@@ -247,22 +298,16 @@ def insert_section(target_doc, source_doc, marker_text: str,
             continue
 
         if tag == "tbl":
-            parent.insert(index, deepcopy(block))
+            new_block = _transfer_image_rels(source_doc, target_doc, block)
+            _scale_table_in_block(new_block, scale=table_scale)
+            parent.insert(index, new_block)
             index += 1
 
         elif tag == "p":
-            rId = _extract_blip_rId(block)
-            if rId:
-                img_path = _save_image_from_part(source_doc, rId)
-                if img_path:
-                    p = target_doc.add_paragraph()
-                    p.add_run().add_picture(img_path, width=Cm(14))
-                    parent.insert(index, p._element)
-                    index += 1
-                    cleanup(img_path)
-            else:
-                parent.insert(index, deepcopy(block))
-                index += 1
+            new_block = _transfer_image_rels(source_doc, target_doc, block)
+            _scale_images_in_block(new_block, scale=image_scale)
+            parent.insert(index, new_block)
+            index += 1
 
     log.info("Section %s–%s inserted at '%s'", start_heading, stop_heading, marker_text)
 
@@ -271,7 +316,8 @@ def insert_section(target_doc, source_doc, marker_text: str,
 # TABLE-ONLY SECTION EXTRACTION
 # ==========================================================
 def insert_section_tables_only(target_doc, source_doc, marker_text: str,
-                                start_heading: str, stop_heading: str):
+                                start_heading: str, stop_heading: str,
+                                table_scale: float = 1.1):
     parent, index, marker_el = _find_marker(target_doc, marker_text)
     if parent is None:
         return
@@ -289,7 +335,9 @@ def insert_section_tables_only(target_doc, source_doc, marker_text: str,
                 break
 
         if capture and tag == "tbl":
-            parent.insert(index, deepcopy(block))
+            new_block = _transfer_image_rels(source_doc, target_doc, block)
+            _scale_table_in_block(new_block, scale=table_scale)
+            parent.insert(index, new_block)
             index += 1
 
 
@@ -297,7 +345,7 @@ def insert_section_tables_only(target_doc, source_doc, marker_text: str,
 # FIRST TABLE AFTER HEADING
 # ==========================================================
 def copy_first_table_after_heading(source_doc, target_doc, marker_text: str,
-                                    heading_text: str):
+                                    heading_text: str, table_scale: float = 1.1):
     parent, index, marker_el = _find_marker(target_doc, marker_text)
     if parent is None:
         return
@@ -309,7 +357,9 @@ def copy_first_table_after_heading(source_doc, target_doc, marker_text: str,
             found_heading = True
             continue
         if found_heading and tag == "tbl":
-            parent.insert(index, deepcopy(block))
+            new_block = _transfer_image_rels(source_doc, target_doc, block)
+            _scale_table_in_block(new_block, scale=table_scale)
+            parent.insert(index, new_block)
             parent.remove(marker_el)
             log.info("First table after '%s' inserted.", heading_text)
             return
@@ -344,7 +394,7 @@ def _save_image_from_part(source_doc, rId: str) -> str | None:
 
 
 def copy_first_image_after_main_heading(source_doc, target_doc, marker_text: str,
-                                         heading_text: str):
+                                         heading_text: str, image_scale: float = 1.15):
     parent, index, marker_el = _find_marker(target_doc, marker_text)
     if parent is None:
         return
@@ -358,21 +408,18 @@ def copy_first_image_after_main_heading(source_doc, target_doc, marker_text: str
         if found and tag == "p":
             rId = _extract_blip_rId(block)
             if rId:
-                img_path = _save_image_from_part(source_doc, rId)
-                if img_path:
-                    p = target_doc.add_paragraph()
-                    p.add_run().add_picture(img_path)
-                    parent.insert(index, p._element)
-                    parent.remove(marker_el)
-                    cleanup(img_path)
-                    log.info("First image after '%s' inserted.", heading_text)
-                    return
+                new_block = _transfer_image_rels(source_doc, target_doc, block)
+                _scale_images_in_block(new_block, scale=image_scale)
+                parent.insert(index, new_block)
+                parent.remove(marker_el)
+                log.info("First image after '%s' inserted.", heading_text)
+                return
 
     log.warning("No image found after heading '%s'.", heading_text)
 
 
 def copy_graph_after_table(source_doc, target_doc, marker_text: str,
-                            heading_text: str):
+                            heading_text: str, image_scale: float = 1.15):
     parent, index, marker_el = _find_marker(target_doc, marker_text)
     if parent is None:
         return
@@ -391,15 +438,12 @@ def copy_graph_after_table(source_doc, target_doc, marker_text: str,
             if table_passed and tag == "p":
                 rId = _extract_blip_rId(block)
                 if rId:
-                    img_path = _save_image_from_part(source_doc, rId)
-                    if img_path:
-                        p = target_doc.add_paragraph()
-                        p.add_run().add_picture(img_path)
-                        parent.insert(index, p._element)
-                        parent.remove(marker_el)
-                        cleanup(img_path)
-                        log.info("Graph after table in '%s' inserted.", heading_text)
-                        return
+                    new_block = _transfer_image_rels(source_doc, target_doc, block)
+                    _scale_images_in_block(new_block, scale=image_scale)
+                    parent.insert(index, new_block)
+                    parent.remove(marker_el)
+                    log.info("Graph after table in '%s' inserted.", heading_text)
+                    return
 
     log.warning("No graph found after table in section '%s'.", heading_text)
 
@@ -606,7 +650,7 @@ def extract_till_end(source_doc, start_heading: str) -> list:
 
 
 def insert_section_blocks(doc, marker_text: str, content_blocks: list,
-                           source_doc):
+                           source_doc, image_scale: float = 1.15, table_scale: float = 1.1):
     parent, index, marker_el = _find_marker(doc, marker_text)
     if parent is None:
         return
@@ -614,32 +658,13 @@ def insert_section_blocks(doc, marker_text: str, content_blocks: list,
     for block in content_blocks:
         tag = block.tag.split("}")[-1]
 
-        if tag == "p":
-            new_para = doc.add_paragraph()
-            for node in block.iter():
-                if node.tag.endswith("t") and node.text:
-                    new_para.add_run(node.text)
-                if node.tag.endswith("blip"):
-                    rId = node.get(
-                        "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed"
-                    )
-                    if rId and rId in source_doc.part.rels:
-                        img_path = _save_image_from_part(source_doc, rId)
-                        if img_path:
-                            run = new_para.add_run()
-                            run.add_picture(img_path, width=Cm(14.4))
-                            cleanup(img_path)
-
-            parent.insert(index, new_para._element)
+        if tag in ("p", "tbl"):
+            new_block = _transfer_image_rels(source_doc, doc, block)
+            _scale_images_in_block(new_block, scale=image_scale)
+            if tag == "tbl":
+                _scale_table_in_block(new_block, scale=table_scale)
+            parent.insert(index, new_block)
             index += 1
-
-        elif tag == "tbl":
-            tbl_copy = deepcopy(block)
-            parent.insert(index, tbl_copy)
-            index += 1
-            # Apply formatting to the just-inserted table
-            table_obj = doc.tables[-1]
-            format_table(table_obj)
 
     parent.remove(marker_el)
     log.info("Section blocks inserted at '%s' (%d blocks).", marker_text, len(content_blocks))
